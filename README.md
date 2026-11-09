@@ -9,7 +9,7 @@
 
 ### 🛠 Refactoring & Object-Oriented Migration
 * **Framework Porting:** Ported the standalone routine from legacy procedural Grbl_ESP32 into FluidNC's modern object-oriented framework (**`FluidNC/src/Main.cpp`**).
-* 
+ 
                  if (!Job::active()) {
                  // No job: every line goes to cmd_queue.  Gate on queue room so a
                  // slow consumer bounds read-ahead - the flow control the old
