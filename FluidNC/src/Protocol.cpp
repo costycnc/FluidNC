@@ -328,14 +328,67 @@ static void poll_once() {
             return;
         }
 
-        if (!Job::active()) {
-            // No job: every line goes to cmd_queue.  Gate on queue room so a
-            // slow consumer bounds read-ahead - the flow control the old
-            // single slot gave.
-            if (uxQueueSpacesAvailable(cmd_queue)) {
-                poll_input_channel();
-            }
-        } else {
+              if (!Job::active()) {
+      // No job: every line goes to cmd_queue.  Gate on queue room so a
+      // slow consumer bounds read-ahead - the flow control the old
+      // single slot gave.
+      if (uxQueueSpacesAvailable(cmd_queue)) {
+          
+          // --- INIZIO IMPLEMENTAZIONE COSTYCNC AUTORUN LOGIC ---
+          static bool file_already_started = false;
+          static bool system_just_powered_on = true; // BOOT SAFETY GUARD
+          static uint32_t last_sd_check_time = 0;
+
+          // ASYNCHRONOUS 3-SECOND SCHEDULER
+          if (millis() - last_sd_check_time >= 3000) {
+              last_sd_check_time = millis();
+
+              // Verifica se l'oggetto SDCard è configurato e se la scheda è montata
+              bool current_sd_ready = (config->_sdCard != nullptr && config->_sdCard->is_mounted()); 
+
+              if (!current_sd_ready) {
+                  // Se la scheda non c'è o viene rimossa, azzeriamo i flag di blocco
+                  file_already_started = false;
+                  system_just_powered_on = false; // La rimozione sblocca la sicurezza di boot
+              } 
+              else if (state_is(State::Idle) && !file_already_started && !system_just_powered_on) {
+                  // In FluidNC il filesystem SD è accessibile tramite l'oggetto globale di archiviazione
+                  fs::File root = config->_sdCard->open("/", "r");
+                  if (root) {
+                      fs::File file = root.openNextFile();
+                      while (file) {
+                          if (!file.isDirectory()) {
+                              const char* name = file.name();
+                              size_t len = strlen(name);
+                              
+                              // DYNAMIC FILE DETECTION: Cerca il prefisso '-' ed estensione '.nc'
+                              if (name[0] == '-' && len > 3 && strcmp(name + len - 3, ".nc") == 0) {
+                                  log_info("CostyCNC AutoRun: Found target file " << name);
+                                  
+                                  // Genera ed inietta in modo sicuro il comando nell'inputBuffer/cmd_queue
+                                  char cmd_buf[Channel::maxLine];
+                                  snprintf(cmd_buf, sizeof(cmd_buf), "$SD/Run=/%s", name);
+                                  
+                                  // Invia il comando simulando l'input dalla Console principale
+                                  cmd_queue_defer(cmd_buf, Console); 
+                                  
+                                  file_already_started = true;
+                                  file.close();
+                                  break;
+                              }
+                          }
+                          file.close();
+                          file = root.openNextFile();
+                      }
+                      root.close();
+                  }
+              }
+          }
+          // --- FINE IMPLEMENTAZIONE COSTYCNC AUTORUN LOGIC ---
+
+          poll_input_channel();
+      }
+  } else {
             if (state_is(State::Alarm) || state_is(State::ConfigAlarm) || state_is(State::Critical)) {
                 log_debug("Unwinding from Alarm");
                 Job::abort();
