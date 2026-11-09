@@ -9,7 +9,7 @@
 ### 🛠 Refactoring & Object-Oriented Migration
 * **Framework Porting & Thread Isolation (`poll_once` Hook):** FluidNC coordinates multitasking via strict FreeRTOS core isolation. Hardware logs and streams loop asynchronously inside `poll_once()` on Core 0, while G-code streaming consumes `cmd_queue` bounds on Core 1. To inject our custom engine without mutating task priorities or creating memory collisions, the interactive macro routine was hooked directly into the non-blocking idle checks of `poll_once()` inside **`FluidNC/src/Protocol.cpp`** starting at **line 329**, upstream of standard input polling loops.
 
-                                           if (!Job::active()) {
+             if (!Job::active()) {
             // No job: every line goes to cmd_queue.  Gate on queue room so a
             // slow consumer bounds read-ahead - the flow control the old
             // single slot gave.
