@@ -21,6 +21,7 @@
 #include "SettingsDefinitions.h"  // gcode_echo
 #include "Machine/LimitPin.h"
 #include "Job.h"
+#include "Storage.h"          // <--- AGGIUNGI QUESTA RIGA QUI
 #include "Driver/restart.h"
 #include "Driver/watchdog.h"
 #include "Driver/heap.h"
