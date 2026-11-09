@@ -6,18 +6,28 @@
 
 **This repository is a customized fork of FluidNC that introduces standalone plug-and-play SD Card AutoRun automation.** Inserting a MicroSD card immediately triggers and streams the G-code job without a computer or screen connected.
 
-### 🛠 Refactoring & Cloud Optimization
-* **The Pipeline Fix:** Fixed the GitHub Actions `manual.yml` workflow by adding explicit `contents: write` permissions to bypass the 403 authorization error. Realigned the broken cache structure from `lockfiles` to `platformio.ini`, dropping test build times from **13m 17s down to 4m 21s**.
-* **Object-Oriented Migration:** Ported the standalone routine from legacy procedural Grbl_ESP32 into FluidNC's modern framework (**`FluidNC/src/Main.cpp`**), routing commands safely into the thread-safe `inputBuffer` using native `sd_card_is_mounted()` and `ff_exists()` hooks.
+### 🛠 Refactoring & Object-Oriented Migration
+* **Framework Porting:** Ported the standalone routine from legacy procedural Grbl_ESP32 into FluidNC's modern object-oriented framework (**`FluidNC/src/Main.cpp`**).
+* **Thread-Safe Architecture:** Commands are now safely routed into FluidNC's native `inputBuffer` queue using thread-safe `sd_card_is_mounted()` and `ff_exists()` system hooks to prevent low-level memory corruption.
 
-### ⚙️ Actual Core Logic & Safety Rules
-* **Boot Safety Guard:** If the machine is powered on or rebooted with an SD card already inside the slot, **nothing happens**. The CNC stays safely in `Idle` to prevent accidental spindle/laser starts. The cycle triggers **only** on a physical card insertion.
-* **Dynamic File Detection:** Instead of a fixed filename, the firmware scans the root directory for the **first available file that begins with a `-` prefix and ends with `.nc`** (e.g., `-sedia.nc`).
+### 🐛 Bugs Found & Resolved
+
+#### ☁️ DevOps & Pipeline Fixes
+* **BUG #1: 403 Forbidden Release Error** ➔ *Resolved*. The original pipeline crashed at the deployment step because the automatic token lacked explicit write access. Added `contents: write` permissions under the build job.
+* **BUG #2: Broken Cache Resource Drain** ➔ *Resolved*. The workflow original key targeted `lockfiles` which FluidNC does not use, forcing an unsustainable **13m 17s** download loop on every single commit. Realigned the cache key to target `platformio.ini`, slashing build times down to **4m 21s**.
+* **BUG #3: Downstream Deploy Credential Crash** ➔ *Resolved*. The automated script ended with a fatal `git push` crash (`fatal: could not read Username for 'https://github.com'`) because it tried to forward binaries to an external repository via an unavailable `RELEASE_COPY_TOKEN`. Commented out the external distribution block to keep release deployments inside your personal fork.
+
+#### ⚙️ Core Firmware & Logic Fixes
+* **BUG #4: Dangerous Power-On Execution Loop** ➔ *Resolved*. If the CNC was turned on with an SD card already inside, the core logic would immediately trigger the motor drivers. Implemented a boot safety guard that forces an explicit, physics-based card insertion event before activating the engine.
+* **BUG #5: Hardcoded Filename Restriction** ➔ *Resolved*. The original implementation locked users into a static `costycnc.nc` filename. Rewrote the file parser to dynamically search the FAT32 root directory for the first file beginning with a `-` prefix and ending with `.nc` (e.g., `-sedia.nc`).
+
+---
+
+### ⚙️ Automation Core Rules & Asynchronous Scheduling
 * **Asynchronous 3-Second Scheduler:** The slot status is polled using an asynchronous internal clock interval (`millis() - last_sd_check_time >= 3000`) to protect CPU cycles. Because this loop runs independently in the background, execution is asynchronous: if you insert the card right before the 3-second window closes, **the cut starts instantly**. If inserted right after, it will wait for the next background interval to trigger.
+* **The G-Code Modal Loop Warning (S0 / M03):** If your G-code drops power via `S0` or leaves `M03` active at the end without sending an explicit `M05`, the firmware state machine will get stuck in modal limbo. The asynchronous scheduler will notice an unstable state mismatch and re-execute the job endlessly. **Mandatory Rule:** Every G-code file **MUST conclude with an `M05` command** to return the machine to a stable `Idle` state.
 
-### 🐛 The G-Code Modal Loop Bug (S0 / M03 Warning)
-If your G-code file drops power via `S0` or leaves `M03` active at the end without sending an explicit `M05`, the firmware state machine will get stuck in a modal limbo. The asynchronous 3-second scheduler will see the card, notice an unstable state mismatch, and re-execute the job endlessly.
-* **Mandatory Rule:** Every automated G-code file used with this fork **MUST conclude with an `M05` command** to return the machine to a stable, static `Idle` state.
+---
 
 ### 🚀 Quick Start Guide
 1. Rename the file you want to execute by adding a single `-` at the beginning (e.g., `sedia.nc` ➔ `-sedia.nc`).
@@ -27,6 +37,7 @@ If your G-code file drops power via `S0` or leaves `M03` active at the end witho
 5. To change jobs, remove the card, swap the `-` prefix to a different file on your PC, and re-insert.
 
 ---
+
 
 
 ## Introduction
