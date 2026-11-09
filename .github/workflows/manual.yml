@@ -9,7 +9,6 @@ on:
 
 jobs:
   build:
-    # MODIFICATO: Aggiunti i permessi di scrittura obbligatori per evitare l'errore 403
     permissions:
       contents: write
 
@@ -29,10 +28,7 @@ jobs:
       with:
         path: |
           ~/.platformio
-        # MODIFICATO: Cambiata la chiave originale (che cercava 'lockfiles' inesistenti) 
-        # collegandola a 'platformio.ini'. Ora la cache funziona davvero.
         key: ${{ runner.os }}-platformio-${{ hashFiles('**/platformio.ini') }}
-        # MODIFICATO: Aggiunto il ripristino della cache per le build successive
         restore-keys: |
           ${{ runner.os }}-platformio-
     - name: Set up Python
@@ -58,11 +54,8 @@ jobs:
         git config user.email "wmb@firmworks.com"
         git config user.name "Mitch Bradley"
         git tag "${{ github.event.inputs.tag }}" -a -m "Release test"
-
-
-        - name: Build
+    - name: Build
       run: python build-release.py
-
     - name: Create release
       uses: softprops/action-gh-release@v1
       with:
@@ -71,4 +64,3 @@ jobs:
           release/*.zip
           release/*.elf
         draft: True
-
