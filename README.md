@@ -10,14 +10,21 @@
 * **The Pipeline Fix:** Fixed the GitHub Actions `manual.yml` workflow by adding explicit `contents: write` permissions to bypass the 403 authorization error. Realigned the broken cache structure from `lockfiles` to `platformio.ini`, dropping test build times from **13m 17s down to 4m 21s**.
 * **Object-Oriented Migration:** Ported the standalone routine from legacy procedural Grbl_ESP32 into FluidNC's modern framework (**`FluidNC/src/Main.cpp`**), routing commands safely into the thread-safe `inputBuffer` using native `sd_card_is_mounted()` and `ff_exists()` hooks.
 
+### ⚙️ Actual Core Logic & Safety Rules
+* **Boot Safety Guard:** If the machine is powered on or rebooted with an SD card already inside the slot, **nothing happens**. The CNC stays safely in `Idle` to prevent accidental spindle/laser starts. The cycle triggers **only** on a physical card insertion.
+* **Dynamic File Detection:** Instead of a fixed filename, the firmware scans the root directory for the **first available file that begins with a `-` prefix and ends with `.nc`** (e.g., `-sedia.nc`).
+* **Asynchronous 3-Second Scheduler:** The slot status is polled using an asynchronous internal clock interval (`millis() - last_sd_check_time >= 3000`) to protect CPU cycles. Because this loop runs independently in the background, execution is asynchronous: if you insert the card right before the 3-second window closes, **the cut starts instantly**. If inserted right after, it will wait for the next background interval to trigger.
+
 ### 🐛 The G-Code Modal Loop Bug (S0 / M03 Warning)
-If your G-code file drops power via `S0` or leaves `M03` active at the end without sending an explicit `M05`, the firmware state machine will get stuck in a modal limbo. The 3-second scheduler will see the card, assume the machine is ready, and re-execute the job endlessly.
+If your G-code file drops power via `S0` or leaves `M03` active at the end without sending an explicit `M05`, the firmware state machine will get stuck in a modal limbo. The asynchronous 3-second scheduler will see the card, notice an unstable state mismatch, and re-execute the job endlessly.
 * **Mandatory Rule:** Every automated G-code file used with this fork **MUST conclude with an `M05` command** to return the machine to a stable, static `Idle` state.
 
 ### 🚀 Quick Start Guide
-1. Rename your G-code file to exactly **`costycnc.nc`** (lowercase).
+1. Rename the file you want to execute by adding a single `-` at the beginning (e.g., `sedia.nc` ➔ `-sedia.nc`).
 2. Copy it to the root directory of a **FAT32** MicroSD card.
-3. Power up the machine (it will sit in *Idle*). Insert the card: within 3 seconds, the cutting cycle starts automatically.
+3. Power up the machine (it will sit in *Idle*). 
+4. **Insert the MicroSD card:** Execution depends on the internal clock phase; the firmware will locate your `-*.nc` file and start the cycle either **instantly or within a 3-second window**.
+5. To change jobs, remove the card, swap the `-` prefix to a different file on your PC, and re-insert.
 
 ---
 
