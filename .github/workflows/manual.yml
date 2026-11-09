@@ -9,6 +9,9 @@ on:
 
 jobs:
   build:
+    # MODIFICATO: Aggiunti i permessi di scrittura obbligatori per evitare l'errore 403
+    permissions:
+      contents: write
 
     runs-on: ubuntu-latest
 
@@ -26,7 +29,12 @@ jobs:
       with:
         path: |
           ~/.platformio
-        key: ${{ runner.os }}-${{ hashFiles('**/lockfiles') }}
+        # MODIFICATO: Cambiata la chiave originale (che cercava 'lockfiles' inesistenti) 
+        # collegandola a 'platformio.ini'. Ora la cache funziona davvero.
+        key: ${{ runner.os }}-platformio-${{ hashFiles('**/platformio.ini') }}
+        # MODIFICATO: Aggiunto il ripristino della cache per le build successive
+        restore-keys: |
+          ${{ runner.os }}-platformio-
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
@@ -40,7 +48,7 @@ jobs:
     - name: config_items.yaml/.json are committed up to date
       # The release ships a freshly generated config_items.yaml/.json, and
       # consumers (e.g. FigUI) fetch the committed copies by tag from
-      # raw.githubusercontent.com, so refuse to release a commit whose
+      # ://githubusercontent.com, so refuse to release a commit whose
       # committed copies don't match its source.
       run: |
         python tools/build_config_docs.py --fail-on-drift
@@ -72,18 +80,3 @@ jobs:
         user_email: bdring@buildlog.net
         user_name: 'Bart Dring'
         commit_msg: Release ${{ github.event.inputs.tag }}
-    # - name: Upload mac bundle
-    #   uses: actions/upload-artifact@v2
-    #   with:
-    #     name: release-macos
-    #     path: release/*macos*
-    # - name: Upload Windows bundle
-    #   uses: actions/upload-artifact@v2
-    #   with:
-    #     name: release-win32
-    #     path: release/*win*
-    # - name: Upload Linux bundle
-    #   uses: actions/upload-artifact@v2
-    #   with:
-    #     name: release-linux
-    #     path: release/*linux*
