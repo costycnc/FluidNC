@@ -60,15 +60,15 @@ jobs:
         git tag "${{ github.event.inputs.tag }}" -a -m "Release test"
 
 
-        # Compila l'ambiente wifi dell'ESP32 standard
+    # Compila l'ambiente wifi dell'ESP32 standard
     - name: Build Only MKS-DLC32 WiFi
       run: platformio run -e wifi
 
-    # MODIFICATO: Esegue build_merged.py dall'interno di PlatformIO per generare il file fuso su 0x0
-    - name: Create Merged Binary
-      run: platformio run -e wifi -t merged_bin
-
-
+    # MODIFICATO: Unisce a mano i pezzi usando esptool in un unico file .bin partendo da 0x0
+    - name: Create Merged Binary (Direct esptool)
+      run: |
+        python -m pip install esptool
+        esptool.py --chip esp32 merge_bin -o release/fluidnc-merged-0x0.bin --flash_mode dio --flash_size 4MB 0x1000 .pio/build/wifi/bootloader.bin 0x8000 .pio/build/wifi/partitions.bin 0xe000 .pio/build/wifi/boot_app0.bin 0x10000 .pio/build/wifi/firmware.bin
 
     - name: Create release
       uses: softprops/action-gh-release@v1
@@ -77,17 +77,10 @@ jobs:
         files: |
           release/*.zip
           release/*.elf
+          release/*.bin
         draft: True
-            # MODIFICATO: Commentato l'intero blocco di deploy esterno per evitare l'errore di credenziali nel fork
-    # - name: Deploy to fluidnc-releases
-    #   uses: datalbry/copy_folder_to_another_repo_action@1.0.0
-    #   env:
-    #     API_TOKEN_GITHUB: ${{ secrets.RELEASE_COPY_TOKEN }}
-    #   with:
-    #     source_folder: 'release/current'
-    #     destination_repo: 'bdring/fluidnc-releases'
-    #     destination_branch: 'main'
-    #     destination_folder: releases/${{ github.event.inputs.tag }}
-    #     user_email: bdring@buildlog.net
-    #     user_name: 'Bart Dring'
-    #     commit_msg: Release ${{ github.event.inputs.tag }}
+
+
+
+
+   
