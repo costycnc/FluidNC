@@ -29,7 +29,6 @@
 
 #include <cstring>  // strncpy
 #include <memory>   // std::unique_ptr
-#include "Machine/SDCard.h"   // Obbligatorio per usare config->_sdCard->is_mounted()
 #include <FS.h>               // Obbligatorio per usare fs::File e gestire la scansione della SD
 
 
