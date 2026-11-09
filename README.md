@@ -10,11 +10,20 @@
 ### 🛠 Refactoring & Object-Oriented Migration
 * **Framework Porting:** Ported the standalone routine from legacy procedural Grbl_ESP32 into FluidNC's modern object-oriented framework (**`FluidNC/src/Protocol.cpp`**).
  
-                 if (!Job::active()) {
-                 // No job: every line goes to cmd_queue.  Gate on queue room so a
-                 // slow consumer bounds read-ahead - the flow control the old
-                 // single slot gave.
-                 if (uxQueueSpacesAvailable(cmd_queue)) {
+                        // Checks unwind_cause against the job stack and aborts atomically
+        // with it, so a nest() that concurrently starts a fresh job (and
+        // clears the flag itself) can't be seen mid-transition and have its
+        // brand-new job killed by a cause meant for whatever used to be on
+        // the stack (FluidNC issue #1861).
+        if (Job::consume_unwind_cause()) {
+            return;
+        }
+
+        if (!Job::active()) {
+            // No job: every line goes to cmd_queue.  Gate on queue room so a
+            // slow consumer bounds read-ahead - the flow control the old
+            // single slot gave.
+            if (uxQueueSpacesAvailable(cmd_queue)) {
                 
                 // --- INIZIO COSTYCNC AUTORUN LOGIC ---
                 static bool file_already_started = false;
@@ -35,9 +44,9 @@
                     } 
                     else if (state_is(State::Idle) && !file_already_started && !system_just_powered_on) {
                         // Se la macchina è in Idle, la SD è pronta, non siamo all'avvio e il file non è partito: scansiona la root
-                        File root = SD.open("/");
+                        fs::File root = config->_sdCard->open("/", "r");
                         if (root) {
-                            File file = root.openNextFile();
+                            fs::File file = root.openNextFile();
                             while (file) {
                                 if (!file.isDirectory()) {
                                     const char* name = file.name();
@@ -70,7 +79,13 @@
 
                 poll_input_channel();
             }
-        }
+        } else {
+            if (state_is(State::Alarm) || state_is(State::ConfigAlarm) || state_is(State::Critical)) {
+                log_debug("Unwinding from Alarm");
+                Job::abort();
+                return;
+            }
+
              
 * **Thread-Safe Architecture (`cmd_queue_defer` Injection):** Instead of forcing hardware-level macros or using unbuffered string injections, the automation safely interacts with FluidNC's dual-core task synchronization. The custom macro has been injected inside **`FluidNC/src/Protocol.cpp`** starting at **line 329**, right inside the `if (!Job::active())` block of the `poll_once()` task loop. It queries the dedicated SD object class (`config->_sdCard->is_mounted()`) on the storage stack and uses the native `cmd_queue_defer(cmd_buf, Console)` method to queue G-code execution. This pipes the automated commands directly into the thread-safe core processing ring, preventing memory collisions between the poller task (Core 0) and the motion controller (Core 1).
 * **MOD #4: Single-File Monolithic BIN Generation (`build_merged.py`)** ➔ *Added*. Since FluidNC's core compiler chain executes a hardcoded build matrix that compiles all environments sequentially, we appended `python build_merged.py` into the `manual.yml` workflow steps. This post-processing hook automatically glues the compiled ESP32-WiFi firmware, partition tables, and bootloaders into a single standalone `.bin` file. Users can flash a brand-new, unprogrammed MKS-DLC32 board in one single step from the master block address **`0x0`** using standard graphical applications like the Espressif ESP32 Download Tool.
