@@ -328,87 +328,75 @@ static void poll_once() {
             return;
         }
 
-if (!Job::active()) {
-      // No job: every line goes to cmd_queue.  Gate on queue room so a
-      // slow consumer bounds read-ahead - the flow control the old
-      // single slot gave.
-      if (uxQueueSpacesAvailable(cmd_queue)) {
-          
-          // --- INIZIO IMPLEMENTAZIONE COSTYCNC AUTORUN LOGIC ---
-          static bool file_already_started = false;
-          static bool system_just_powered_on = true; 
-          static uint32_t last_sd_check_time = 0;
+if (!Job::active()) { // No job: every line goes to cmd_queue. Gate on queue room so a // slow consumer bounds read-ahead - the flow control the old // single slot gave.
+    if (uxQueueSpacesAvailable(cmd_queue)) {
+        
+        // --- INIZIO IMPLEMENTAZIONE COSTYCNC SOLO SU INSERIMENTO IN IDLE ---
+        // Inizializzando a 'true', se la SD è già presente all'avvio viene ignorata.
+        static bool sd_was_ready = true; 
 
-          // Scheduler asincrono ogni 3 secondi
-          if (millis() - last_sd_check_time >= 3000) {
-              last_sd_check_time = millis();
+        // CANCELLO DI SICUREZZA E OTTIMIZZAZIONE:
+        // Se la macchina NON è in Idle (es. è in Alarm, Jogging, Hold, ecc.), 
+        // saltiamo completamente tutto il controllo hardware della SD.
+        if (state_is(State::Idle)) {
 
-              // METODO CORRETTO FLUIDNC: Verifica se il modulo SD è configurato nell'hardware
-              bool has_sd_hardware = (config->_sdCard != nullptr); 
-              
-              // Verifica se il file system /sd risponde correttamente
-              bool current_sd_ready = has_sd_hardware && Storage::is_ready("/sd");
+            // 1. Verifica hardware e stato attuale della SD (eseguito solo in Idle)
+            bool has_sd_hardware = (config->_sdCard != nullptr);
+            bool current_sd_ready = has_sd_hardware && Storage::is_ready("/sd");
 
-              if (!current_sd_ready) {
-                  // Se la scheda viene rimossa, azzeriamo i flag per consentire un nuovo autorun al reinserimento
-                  file_already_started = false;
-                  system_just_powered_on = false; 
-              } 
-              else if (state_is(State::Idle) && !file_already_started) {
-                  
-                  // Se siamo al primo avvio assoluto e la scheda è già dentro, sblocchiamo il flag per farla partire
-                  if (system_just_powered_on) {
-                      system_just_powered_on = false;
-                  }
+            // 2. Se la SD NON è inserita o viene rimossa, prepariamo il sistema
+            if (!current_sd_ready) {
+                sd_was_ready = false;
+            } 
+            // 3. EVENTO: Inserimento a caldo rilevato solo mentre siamo in Idle
+            else if (!sd_was_ready) {
+                
+                // Blocchiamo subito l'evento per evitare loop
+                sd_was_ready = true;
 
-                  // METODO CORRETTO FLUIDNC: Apre la directory radice della SD tramite Storage
-                  File root = Storage::open("/sd", "r");
-                  if (root && root.isDirectory()) {
-                      File file = root.openNextFile();
-                      while (file) {
-                          if (!file.isDirectory()) {
-                              // Gestione sicura del nome file sia per stringhe vecchio stile che per oggetti String
-                              const char* name = file.name();
-                              
-                              // Estrae solo il nome del file se include il percorso assoluto (es: "/sd/-file.nc")
-                              const char* short_name = strrchr(name, '/');
-                              if (short_name) {
-                                  short_name++; // Salta la barra '/'
-                              } else {
-                                  short_name = name;
-                              }
+                log_info("CostyCNC AutoRun: Rilevato INSERIMENTO scheda SD in stato Idle. Scansione file...");
+                
+                File root = Storage::open("/sd", "r");
+                if (root && root.isDirectory()) {
+                    File file = root.openNextFile();
+                    while (file) {
+                        if (!file.isDirectory()) {
+                            const char* name = file.name();
+                            const char* short_name = strrchr(name, '/');
+                            if (short_name) {
+                                short_name++;
+                            } else {
+                                short_name = name;
+                            }
+                            
+                            size_t len = strlen(short_name);
+                            // Controllo nome file: deve iniziare con '-' e finire con '.nc'
+                            if (short_name[0] == '-' && len > 3 && strcmp(short_name + len - 3, ".nc") == 0) {
+                                log_info("CostyCNC AutoRun: Trovato file target -> " << short_name);
+                                
+                                char cmd_buf[Channel::maxLine];
+                                snprintf(cmd_buf, sizeof(cmd_buf), "$SD/Run=/sd/%s", short_name);
+                                
+                                // Inietta il comando nella coda di esecuzione
+                                cmd_queue_defer(cmd_buf, Console);
+                                
+                                file.close();
+                                break; // File trovato, usciamo dalla scansione
+                            }
+                        }
+                        file.close();
+                        file = root.openNextFile();
+                    }
+                    root.close();
+                }
+            }
+        }
+        // --- FINE IMPLEMENTAZIONE COSTYCNC SOLO SU INSERIMENTO IN IDLE ---
 
-                              size_t len = strlen(short_name);
-                              
-                              // DYNAMIC FILE DETECTION: Cerca il prefisso '-' ed estensione '.nc'
-                              if (short_name[0] == '-' && len > 3 && strcmp(short_name + len - 3, ".nc") == 0) {
-                                  
-                                  log_info("CostyCNC AutoRun: Trovato file target -> " << short_name);
-                                  
-                                  // Genera il comando accodando il percorso corretto /sd/
-                                  char cmd_buf[Channel::maxLine];
-                                  snprintf(cmd_buf, sizeof(cmd_buf), "$SD/Run=/sd/%s", short_name);
-                                  
-                                  // Inietta il comando simulando l'input del canale seriale/console
-                                  cmd_queue_defer(cmd_buf, Console); 
-                                  
-                                  file_already_started = true;
-                                  file.close();
-                                  break;
-                              }
-                          }
-                          file.close();
-                          file = root.openNextFile();
-                      }
-                      root.close();
-                  }
-              }
-          }
-          // --- FINE IMPLEMENTAZIONE COSTYCNC AUTORUN LOGIC ---
+        poll_input_channel();
+    }
+} else { 
 
-          poll_input_channel();
-      }
-  } else {
 
             if (state_is(State::Alarm) || state_is(State::ConfigAlarm) || state_is(State::Critical)) {
                 log_debug("Unwinding from Alarm");
