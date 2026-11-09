@@ -58,13 +58,16 @@ jobs:
         git config user.email "wmb@firmworks.com"
         git config user.name "Mitch Bradley"
         git tag "${{ github.event.inputs.tag }}" -a -m "Release test"
-    # MODIFICATO: Bypassa lo script python e compila direttamente solo l'ambiente wifi dell'ESP32 standard
+
+
+        # Compila l'ambiente wifi dell'ESP32 standard
     - name: Build Only MKS-DLC32 WiFi
       run: platformio run -e wifi
 
-    # MODIFICATO: Prende i file generati e li fonde in un unico binario a partire da 0x0
+    # MODIFICATO: Esegue build_merged.py dall'interno di PlatformIO per generare il file fuso su 0x0
     - name: Create Merged Binary
-      run: python build_merged.py
+      run: platformio run -e wifi -t merged_bin
+
 
 
     - name: Create release
