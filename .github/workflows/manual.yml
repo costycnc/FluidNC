@@ -58,8 +58,14 @@ jobs:
         git config user.email "wmb@firmworks.com"
         git config user.name "Mitch Bradley"
         git tag "${{ github.event.inputs.tag }}" -a -m "Release test"
+    # Esegue la compilazione standard completa di tutte le varianti di FluidNC
     - name: Build
-      run: python build-release.py --env wifi
+      run: python build-release.py
+
+    # MODIFICATO: Unisce bootloader, partizioni e firmware in un unico file .bin a partire da 0x0
+    - name: Create Merged Binary
+      run: python build_merged.py
+
     - name: Create release
       uses: softprops/action-gh-release@v1
       with:
