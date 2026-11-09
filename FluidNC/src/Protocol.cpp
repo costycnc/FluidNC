@@ -328,7 +328,7 @@ static void poll_once() {
             return;
         }
 
-              if (!Job::active()) {
+if (!Job::active()) {
       // No job: every line goes to cmd_queue.  Gate on queue room so a
       // slow consumer bounds read-ahead - the flow control the old
       // single slot gave.
@@ -336,40 +336,60 @@ static void poll_once() {
           
           // --- INIZIO IMPLEMENTAZIONE COSTYCNC AUTORUN LOGIC ---
           static bool file_already_started = false;
-          static bool system_just_powered_on = true; // BOOT SAFETY GUARD
+          static bool system_just_powered_on = true; 
           static uint32_t last_sd_check_time = 0;
 
-          // ASYNCHRONOUS 3-SECOND SCHEDULER
+          // Scheduler asincrono ogni 3 secondi
           if (millis() - last_sd_check_time >= 3000) {
               last_sd_check_time = millis();
 
-              // Verifica se l'oggetto SDCard è configurato e se la scheda è montata
-              bool current_sd_ready = (config->_sdCard != nullptr && config->_sdCard->is_mounted()); 
+              // METODO CORRETTO FLUIDNC: Verifica se il modulo SD è configurato nell'hardware
+              bool has_sd_hardware = (config->_sdCard != nullptr); 
+              
+              // Verifica se il file system /sd risponde correttamente
+              bool current_sd_ready = has_sd_hardware && Storage::is_ready("/sd");
 
               if (!current_sd_ready) {
-                  // Se la scheda non c'è o viene rimossa, azzeriamo i flag di blocco
+                  // Se la scheda viene rimossa, azzeriamo i flag per consentire un nuovo autorun al reinserimento
                   file_already_started = false;
-                  system_just_powered_on = false; // La rimozione sblocca la sicurezza di boot
+                  system_just_powered_on = false; 
               } 
-              else if (state_is(State::Idle) && !file_already_started && !system_just_powered_on) {
-                  // In FluidNC il filesystem SD è accessibile tramite l'oggetto globale di archiviazione
-                  fs::File root = config->_sdCard->open("/", "r");
-                  if (root) {
-                      fs::File file = root.openNextFile();
+              else if (state_is(State::Idle) && !file_already_started) {
+                  
+                  // Se siamo al primo avvio assoluto e la scheda è già dentro, sblocchiamo il flag per farla partire
+                  if (system_just_powered_on) {
+                      system_just_powered_on = false;
+                  }
+
+                  // METODO CORRETTO FLUIDNC: Apre la directory radice della SD tramite Storage
+                  File root = Storage::open("/sd", "r");
+                  if (root && root.isDirectory()) {
+                      File file = root.openNextFile();
                       while (file) {
                           if (!file.isDirectory()) {
+                              // Gestione sicura del nome file sia per stringhe vecchio stile che per oggetti String
                               const char* name = file.name();
-                              size_t len = strlen(name);
+                              
+                              // Estrae solo il nome del file se include il percorso assoluto (es: "/sd/-file.nc")
+                              const char* short_name = strrchr(name, '/');
+                              if (short_name) {
+                                  short_name++; // Salta la barra '/'
+                              } else {
+                                  short_name = name;
+                              }
+
+                              size_t len = strlen(short_name);
                               
                               // DYNAMIC FILE DETECTION: Cerca il prefisso '-' ed estensione '.nc'
-                              if (name[0] == '-' && len > 3 && strcmp(name + len - 3, ".nc") == 0) {
-                                  log_info("CostyCNC AutoRun: Found target file " << name);
+                              if (short_name[0] == '-' && len > 3 && strcmp(short_name + len - 3, ".nc") == 0) {
                                   
-                                  // Genera ed inietta in modo sicuro il comando nell'inputBuffer/cmd_queue
+                                  log_info("CostyCNC AutoRun: Trovato file target -> " << short_name);
+                                  
+                                  // Genera il comando accodando il percorso corretto /sd/
                                   char cmd_buf[Channel::maxLine];
-                                  snprintf(cmd_buf, sizeof(cmd_buf), "$SD/Run=/%s", name);
+                                  snprintf(cmd_buf, sizeof(cmd_buf), "$SD/Run=/sd/%s", short_name);
                                   
-                                  // Invia il comando simulando l'input dalla Console principale
+                                  // Inietta il comando simulando l'input del canale seriale/console
                                   cmd_queue_defer(cmd_buf, Console); 
                                   
                                   file_already_started = true;
@@ -389,6 +409,7 @@ static void poll_once() {
           poll_input_channel();
       }
   } else {
+
             if (state_is(State::Alarm) || state_is(State::ConfigAlarm) || state_is(State::Critical)) {
                 log_debug("Unwinding from Alarm");
                 Job::abort();
