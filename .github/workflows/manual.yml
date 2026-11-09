@@ -60,16 +60,8 @@ jobs:
         git tag "${{ github.event.inputs.tag }}" -a -m "Release test"
 
 
-       # Compila l'ambiente wifi dell'ESP32 standard
-    - name: Build Only MKS-DLC32 WiFi
-      run: platformio run -e wifi
-
-    # MODIFICATO: Genera in automatico boot_app0.bin e poi unisce tutti i pezzi con esptool
-    - name: Create Merged Binary (Direct esptool)
-      run: |
-        python -m pip install esptool
-        esptool.py make_boot_app0 boot_app0.bin
-        esptool.py --chip esp32 merge_bin -o release/fluidnc-merged-0x0.bin --flash_mode dio --flash_size 4MB 0x1000 .pio/build/wifi/bootloader.bin 0x8000 .pio/build/wifi/partitions.bin 0xe000 boot_app0.bin 0x10000 .pio/build/wifi/firmware.bin
+        - name: Build
+      run: python build-release.py
 
     - name: Create release
       uses: softprops/action-gh-release@v1
@@ -78,5 +70,5 @@ jobs:
         files: |
           release/*.zip
           release/*.elf
-          release/*.bin
         draft: True
+
